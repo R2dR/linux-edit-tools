@@ -1,0 +1,6 @@
+h1. Linux-Edit-Tools
+
+* fsearch - recursive file keyword search (and replace)
+* t2sp    - tab-to-space indentation converter 
+* sp2t    - space-to-tab indentation converter
+
