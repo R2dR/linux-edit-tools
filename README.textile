@@ -1,6 +1,15 @@
 h1. Linux-Edit-Tools
 
+h3. Contents
+
 * fsearch - recursive file keyword search (and replace)
 * t2sp    - tab-to-space indentation converter 
 * sp2t    - space-to-tab indentation converter
+* colorize - output colorization module
+
+h3. Install
+
+copy all files to /usr/local/bin
+
+
 
