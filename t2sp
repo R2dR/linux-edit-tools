@@ -1,0 +1,30 @@
+#!/bin/bash
+T2SP_VERSION=1.2
+# Copyright(c) 2012 RubytotheRails.com
+# This is free software distributed per the MIT License at www.r2dr.com/licenses/commands
+# Copyright and License URL must be included for any distribution
+
+if [[ -z $1 ]]; then
+  echo "must provide file"; echo
+  exit
+elif [[ $1 == "--version" || $1 == "-v" ]]; then
+	echo $T2SP_VERSION; echo
+	exit
+fi
+
+for file in "$@"; do
+  if [[ ! -e $file ]]; then
+    echo "$file - not found"
+    next
+  else
+    sed -i -re 's/[ \t]+$//' $file
+    passes=0
+    while grep -q -P '^\s*\t' $file
+    do
+      sed -i -re 's/^(\s*)\t/\1  /' $file
+      passes=$((passes + 1))
+    done
+    echo "$file - done in $passes passes"
+  fi
+done
+echo ""

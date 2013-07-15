@@ -1,0 +1,194 @@
+#!/bin/bash
+FSEARCH_VERSION=1.6
+# Copyright(c) 2012 RubytotheRails.com
+# This is free software distributed per the MIT License at www.r2dr.com/licenses/commands
+# Copyright and License URL must be included for any distribution
+DIR=~/.fsearch
+mkdir $DIR 2>/dev/null
+GREPRESULT=$DIR/greplist
+FILELIST=$DIR/filelist
+
+function paint { echo $2; }
+function colorOn { echo -n; }
+function colorOff { echo -n; }
+[[ -f $(dirname $0)/colorize ]] && source "$(dirname $0)/colorize"
+
+function usage {
+	colorOn yellow
+  echo "Recursive search and replace in files"
+  echo "Usage: fsearch [options] [search string]"
+	echo ""
+  echo "Options:"
+  echo "  -i              case-insensitive search"
+  echo "  -c, --count     count number of occurrences"
+  echo "  -e,             search by extended regex"
+  echo "  -u, --unique    show only unique search results"
+  echo "  -z              ignore results from minified files"
+  echo "  -r, --replace   replace text"
+  echo "  -h, --help"
+  echo ""
+  echo "Search by text pattern:"
+  echo "  fsearch class='header'"
+  echo "  fsearch \"class='header extra-wide'\"  (use quotes for search strings with spaces)"
+  echo ""
+  echo "Search by regex pattern:"
+  echo "  fsearch -e class=.?header.?"
+  echo "  fsearch class=?header?  (accepts both * and ? wildcards)"
+  echo "  fsearch /class=.?header.?/"
+  echo "  fsearch -e class=[\'\"]header[\'\"]  (escape double/single quotes)"
+  echo ""
+  echo "Replace all search matches:"
+  echo "  fsearch \"mispelled\" -r \"misspelled\""
+  echo ""
+  colorOff
+}
+
+CASE_INSENSITIVE=
+REPLACE=
+QUERY=
+SUB=
+COUNT=
+EQUERY=
+EGREP_SWITCH="-w"
+UNIQUE=
+REGEX=
+LINEONLY=
+EXGREP_SWITCH=
+for arg in "$@"; do
+	case $arg in
+  	-h|--help) usage; exit ;;
+  	--version) echo $FSEARCH_VERSION; exit ;;
+  	-r|--replace) REPLACE=y ;;
+  	-z) LINEONLY=y ;;
+  	-e) REGEX=y ;;
+  	-c|--count) COUNT=y ;;
+  	-u|--unique) UNIQUE=y ;;
+  	--exclude=*) EXGREP_SWITCH=$arg;;
+  	-I) CASE_INSENSITIVE= ;;
+  	-i) CASE_INSENSITIVE=y ;;
+  	*)
+    	if [[ -z $QUERY ]]; then
+    		QUERY=$arg
+    		if [[ $REGEX || $QUERY =~ ^/.*/$ ]]; then
+    			EQUERY=$(echo "$QUERY" | sed -re "s/^\///;s/\/$//")
+    			EGREP_SWITCH="-E"
+    		elif [[ $QUERY =~ [^.][*?] ]]; then
+    			EQUERY=$(echo "$QUERY" | sed -re "s/([*?])/.\1/g")
+    			EGREP_SWITCH="-E"
+    		else
+    			EQUERY=$QUERY
+    		fi
+    	elif [[ -z $SUB ]]; then
+    		SUB=$arg
+    	fi
+  	;;
+	esac
+done
+
+function grep_files {
+	query=$1
+	switches=$2
+	grep --color -r $switches "$query" *
+}
+
+function grep_files_split_lines {
+	query=$1
+	switches=$2
+	if [[ $LINEONLY ]]; then
+		grep -r $switches "$query" * | cut -c1-200 | grep --color=always $switches "$query" | sed 's/: */:\n/'
+	else
+		grep --color=always -r $switches "$query" * | cut -c1-200 | sed 's/: */:\n/'
+	fi
+}
+
+function grep_query_unique {
+	query=$1
+	switches=$2
+	grep -r $switches "$query" * | sed -n -re "s/.*($query).*/\1/p" | sort -u
+}
+
+function total_count {
+	query=$1
+	switches=$2
+	if [[ $query ]]; then
+		TMPOUT=$(mktemp)
+		grep -c -r $switches "$query" | cut -d':' -f2 | egrep -v ^0$ > $TMPOUT
+		echo "$(( $(cat $TMPOUT | tr '\n' '+') 0 )) lines in $(cat $TMPOUT | wc -l) files"
+	fi
+}
+
+GREP_SWITCH1=
+[[ $CASE_INSENSITIVE ]] && GREP_SWITCH1="-i"
+GREP_SWITCHES="$GREP_SWITCH1 $EGREP_SWITCH $EXGREP_SWITCH"
+
+if [[ -z $QUERY ]]; then
+	paint orange "Must provide a search string"
+elif [[ -z $REPLACE ]]; then
+	#Search
+	if [[ $UNIQUE ]]; then
+		paint lgreen "Searching unique results: [$QUERY] ..."
+		colorOn blue
+		grep_query_unique "$EQUERY" "$GREP_SWITCHES"
+		colorOff
+	else
+		paint lgreen "Searching: [$QUERY] ..."
+		grep_files_split_lines "$EQUERY" "$GREP_SWITCHES"
+	fi
+	[[ $COUNT ]] &&	paint yellow ">> Found $(total_count "$EQUERY" "$switches")"
+else
+	#Substitution
+	colorOn lgreen
+	read -p "Replace [$QUERY] with [$SUB]? (y/n)" -n 1 -r; echo "";
+	colorOff
+	if [[ ! $REPLY =~ [yY] ]]; then
+		echo ""; exit
+	fi
+	#check for irreversible situations and warn the user!!!
+	#1. check for unique query set > 1
+	query_set_size=$(grep_query_unique "$EQUERY" "$GREP_SWITCHES" | wc -l)
+	if [[ $query_set_size -gt 1 ]]; then
+		colorOn orange
+		echo "Warning: The search maps to more than one unique string."
+		echo "The substitution will not be uniquely reversible!"
+		read -p "Are you sure you want to continue? (y/n)" -n 1 -r; echo ""
+		colorOff
+		if [[ ! $REPLY =~ [Yy] ]]; then
+			colorOn blue
+			echo "Search results:"
+			grep_query_unique "$EQUERY" "$GREP_SWITCHES"
+			colorOff
+			echo ""
+			exit
+		fi
+	fi
+	#2. check that SUBstitution string does not already exist
+	substitution_set_size=$(grep_query_unique "$SUB" | wc -l)
+	if [[ $substitution_set_size -gt 0 ]]; then
+	  colorOn orange
+	  echo "Warning: The substitution string already exists in other places."
+	  echo "The substitution will not be uniquely reversible!"
+	  read -p "Are you sure you want to continue? (y/n)" -n 1 -r; echo ""
+	  colorOff
+	  if [[ ! $REPLY =~ [Yy] ]]; then
+	  	colorOn blue
+	  	echo "Existing entries for [$SUB]:"
+	  	grep_files_split_lines "$SUB"
+	  	colorOff
+	  	echo ""
+	  	exit
+	  fi
+	fi
+
+	#DO the substitution
+	grep_files "$EQUERY" "$GREP_SWITCHES" > $GREPRESULT
+	cat $GREPRESULT | sed -n -re 's/^([^:]+).*/\1/p' | sort -u > $FILELIST
+	#grep -lr $GREP_SWITCHES "$EQUERY" * > $FILELIST
+	SEDSUB="s/$EQUERY/$SUB/g"
+	[[ $CASE_INSENSITIVE ]] && SEDSUB="s/$EQUERY/$SUB/gi"
+	xargs sed -i -re "$SEDSUB" < $FILELIST
+	grep_files_split_lines "$SUB"
+	#grep --color -r "$SUB" *
+	paint yellow ">> Replaced [$QUERY] in $(total_count "$SUB")"
+fi
+
+echo ""
