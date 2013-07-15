@@ -1,0 +1,116 @@
+#!/bin/bash
+# Copyright(c) 2012 RubytotheRails.com
+# This is free software distributed per the MIT License at www.r2dr.com/licenses/commands
+# Copyright and License URL must be included for any distribution
+
+PROPERTY_FILE=~/.rpr
+
+BASE_DIRECTORY=
+[[ -f $PROPERTY_FILE ]] && source $PROPERTY_FILE
+
+PROJPATH=
+
+function paint { echo $2; }
+function colorOn { echo -n; }
+function colorOff { echo -n; }
+[[ -f "$(dirname $0)/colorize" ]] && source "$(dirname $0)/colorize"
+
+
+function usage {
+  echo "Usage: . rpr PROJECT-NAME"
+  echo "         rpr OPTION VALUE"
+  echo "		     rpr"
+  echo ""
+  echo "  -d  set rails project BASE directory"
+  echo "  -s  show properties"
+  echo "  -l, --list  list projects"
+  echo "  -h, --help"
+}
+
+function save_properties {
+  echo "BASE_DIRECTORY=$BASE_DIRECTORY" > "$PROPERTY_FILE"
+  show_properties
+}
+
+function list_projects {
+  if [[ -z "$BASE_DIRECTORY" ]]; then
+    echo "You must first set a base directory."; echo ""; exit 1
+  fi
+  ls -l "$BASE_DIRECTORY" | grep "^d" | tr -s ' ' | cut -d' ' -f9
+}
+
+function show_properties {
+  [[ -f "$PROPERTY_FILE" ]] && cat "$PROPERTY_FILE"
+}
+
+function set_base_dir {
+  if [[ -z $1 ]]; then
+    echo "Must provide base directory path"
+  elif [[ ! -d $1 ]]; then
+    echo "Directory $1 does not exist"
+  else
+    BASE_DIRECTORY=$1
+    save_properties
+  fi
+}
+
+function set_project {
+  if [[ "$0" != "bash" ]]; then
+    echo "You must set projects using dot notation--> . rpr PROJECT-NAME"
+    echo ""; exit 1
+  fi
+
+  if [[ -z $1 ]]; then
+    echo "Provide a project name"; echo ""; exit 1
+  elif [[ -d $1 ]]; then
+    PROJPATH=$1
+  elif [[ -d $BASE_DIRECTORY && -d $BASE_DIRECTORY/$1 ]]; then
+    PROJPATH=$BASE_DIRECTORY/$1
+  else
+    echo "No project directory for '$1'."
+    echo "Maybe try setting the base directory with -d."
+  fi
+
+  if [[ ! -z $PROJPATH ]]; then
+    echo "Setting project '$1'..."
+    cd $PROJPATH
+    [[ -f .rails ]] && cd $(head -n 1 < .rails)
+    if rvm gemset list | egrep -q "\s$1$"; then
+      X=NOOP
+    else
+      echo "Creating gemset $1..."
+      rvm gemset create $1
+    fi
+    if [[ ! -f .ruby-gemset ]]; then
+      echo `ruby -v | grep -Po 'ruby \K\d+\.\d+(\.\d+)'` > .ruby-version
+      echo $1 > .ruby-gemset
+	    rvm gemset use $1
+    fi
+    echo "Ready: $1."
+  fi
+}
+
+case $1 in
+  -h|--help) usage;;
+  -l|-ls|--ls|--list) list_projects;;
+  -s|--show) show_properties;;
+  -d|--base-dir) set_base_dir $2;;
+  -*|--*) usage;;
+  *)
+    if [[ -z $1 ]]; then
+    	GEMSET=`rvm gemset list | grep -Po "=>\s\K.*"`
+    	if [[ -z $GEMSET ]]; then
+    		paint orange "No project set"
+    	else
+	    	if [[ "$0" == "bash" ]]; then
+  	  		cd $BASE_DIRECTORY/$GEMSET
+  	  	fi
+	    	paint green "project/gemset: '$GEMSET'"
+	    fi
+    else
+		  set_project $1
+    fi
+  ;;
+esac
+
+echo ""
